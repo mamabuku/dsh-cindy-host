@@ -134,6 +134,19 @@ test('macOS reads/deletes existing Keychain entries and writes via stdin, never 
   for (const call of calls) assert.doesNotMatch(JSON.stringify(call.args), /fake-access|fake-refresh/);
 });
 
+test('macOS decodes the hex form security prints when the stored password has non-ASCII bytes', async () => {
+  // `security find-generic-password -w` hex-encodes a password that contains bytes
+  // outside printable ASCII (a CJK display name in the session). The reader must
+  // decode that before JSON.parse, or every such login looks like a broken store.
+  const hex = Buffer.from(JSON.stringify(SESSION), 'utf8').toString('hex');
+  const store = createCredentialStore({ platform: 'darwin', run: async (file, args) => {
+    assert.equal(file, '/usr/bin/security');
+    if (args[0] === 'find-generic-password') return ok(hex + '\n');
+    return ok('');
+  } });
+  assert.deepEqual(await store.loadSession(), SESSION);
+});
+
 test('macOS only treats item-not-found as absence; interactive failures propagate', async () => {
   const missing = createCredentialStore({ platform: 'darwin', run: async () => ({ code: 44, stdout: '', stderr: 'not found' }) });
   assert.equal(await missing.loadSession(), null);

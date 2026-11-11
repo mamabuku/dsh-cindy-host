@@ -78,6 +78,17 @@ function base64(value) {
 // security's interactive command parser accepts quoted arguments. Secrets stay off argv.
 const securityQuote = value => '"' + value.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 
+// `security find-generic-password -w` prints the password hex-encoded when it holds
+// bytes that are not printable ASCII — e.g. a display name like "黑娃®". Decode that
+// form before parsing; a real JSON value always starts with '{' and is never all hex.
+function decodeSecurityStdout(stdout) {
+  const text = stdout.replace(/\s+$/u, '');
+  if (text.length > 0 && text.length % 2 === 0 && /^[0-9a-fA-F]+$/u.test(text)) {
+    return Buffer.from(text, 'hex').toString('utf8');
+  }
+  return text;
+}
+
 /** One installation's store. No process-global registration and no native npm modules.
  * Linux/macOS keep the historical service/account, so existing keychain records remain readable.
  * Windows stores ONLY DPAPI ciphertext in DSH's native record service, never in settings.
@@ -122,7 +133,7 @@ export function createCredentialStore({ platform = process.platform, env = proce
       const result = await command('/usr/bin/security', ['find-generic-password', '-s', SERVICE, '-a', account, '-w']);
       if (result.code === 44) return null; // errSecItemNotFound, not a locked/denied keychain
       if (result.code !== 0) throw new CredentialStoreUnavailableError();
-      return parseSession(result.stdout.trimEnd());
+      return parseSession(decodeSecurityStdout(result.stdout));
     }
     throw new CredentialStoreUnavailableError();
   }
